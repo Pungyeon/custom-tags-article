@@ -5,7 +5,7 @@
 
 In this article we will have a look at the Go feature "struct tags", talk about what they are and how they are used. Furthermore, we will explore how we can create our own custom tags, to benefit even more from this useful feature.
 
-So, to start with: What are struct tags? Struct tags are a Go feature, which defines a tag for a particular field of a struct. In itself, a struct tag is merely text metadata field. However, it's quite practical and is commonly used for defining behaviour for a particular field. A very common example of this is the `json` tag, use by the `json` package to Marshal and Unmarshal struct fields:
+So, to start with: What are struct tags? Struct tags are a Go feature, which defines a tag for a particular field of a struct. In itself, a struct tag is merely text metadata field. However, it's quite practical and is commonly used for defining behaviour for a particular field. A very common example of this is the `json` tag, use by the `json` package to marshal and unmarshal struct fields:
 
 ```go
 type Person struct {
@@ -36,9 +36,10 @@ func PrintTags(v interface{}) {
 }
 ```
 
-In the above function, we have created a function which accepts an `interface{}` value (in other words, this can be *any* value). Working with the `interface{}` type in Go, is a little underwhelming. It has no methods nor fields and there is generally very little which you can actually do with an `interface{}` other than type asserting. So, we would therefore like some more information on what this `interface{}` value actually contains. For this we use the `reflect.ValueOf`. This retrieves a `reflect.Value`, which contains all the metadata and methods we need to work with:
+In the above function, we have created a function which accepts an `interface{}` value (in other words, this can be *any* value). Working with the `interface{}` type in Go, is a little underwhelming. It has no methods nor fields and there is generally very little which you can actually do with an `interface{}` other than type asserting. So, we would therefore like some more information on what this `interface{}` value actually contains. For this we use the `reflect.ValueOf` function. This returns a `reflect.Value`, which contains the metadata we need to work with our given value:
 
 ```go
+// From 'value.go' in the reflect package
 type Value struct {
 	typ *rtype
 	ptr unsafe.Pointer
@@ -46,11 +47,18 @@ type Value struct {
 }
 ```
 
-Simply, the `typ` field of type `*rtype` is Go's "common" internal library type. It is essentially just metadata for that particular value: name, size, equality function, hash and garbage collection data. The `ptr unsafe.Pointer` is a raw pointer to the actual data of the value and `flag` is additional metadata: whether the value is read-only, if it is addressable etc. I'm not going deeper into this rabbit hole, but if are curious, I can highly recommend jumping right in! It's a lot of fun.
+Very simply put, the `Value` struct is a structure containing various metadata and pointers for a given variable. More so, it has various methods attached, to enable retrieving this information in a, somewhat, safe and easy manner. In any case, it's better than retrieving the data using pointer arithmetic, which is what most of the methods are doing under the hood. The three fields of Value are:
+* `typ`: `*rtype` is a struct for generically describing *any* value. Which includes type and kind name, as well as metadata establishing size, hashing, equality, as well as information on garbage collection. 
+* `ptr`: is an `unsafe.Pointer` (which is as close to a C pointer as Go gets), to the data stored by the given value.
+* `flag`: is another metadata field, which is typically used for pointer arithmetic.
+
+I'm not going deeper into this rabbit hole, but if are curious, I can highly recommend jumping right in! It's a lot of fun and you learn a lot about how Go works under the hood. So, if you're into that kind of stuff, this is your gateway.
 
 > NOTE : Thoroughly recommend this article series: https://cmc.gitbook.io/go-internals/
 
-Either way, the `reflect.Value` type allows us to have a peak at the metadata of the given value. For example, using the method `reflect.Value::Kind` we can retrieve the underlying type (int, array, slice, struct etc.). Using this kind value, we can check whether the given value is of type `reflect.Struct`. We do this, as we are not interested in anything else; After all, we are trying to retrieve struct tags, and they only reside on structs.
+Either way, the `reflect.Value` type allows us to have a peak at the metadata of the given value. For example, using the method `reflect.Value::Kind` we can retrieve the underlying 'kind' (int, array, slice, struct etc.). Using this kind value, we can check whether the given value is of type `reflect.Struct`. We do this, as we are not interested in anything else; After all, we are trying to retrieve struct tags, and they only reside on structs.
+
+> NOTE: I will try to distinguish between type and kind throughout the article, in terms of what it means according to the reflect package. The difference being: `kind` can be considered the native / primitive types of Go: `struct`, `int(s)`, `string`, `float` etc. Whereas `type` also includes our custom structs such as `reflect.Value`. In other words: `reflect.Value`'s kind is a `Struct`, but is of type `reflect.Value`. A pointer, so `*reflect.Value`'s kind is `Ptr`. 
 
 Should we have been lucky enough to receive a struct kind, we will now retrieve the type information of this struct. As an example, if we had received a `Person` type, we would be retrieving the `reflect.Type` metadata for a `Person`. With this type information we can now iterate over the fields by calling the `reflect.Type::NumField` method, which will return the number of fields for that type. Thereafter, we can retrieve the metadata for each field using the method `reflect.Value::Field`, specifying the field index with our iterator `i`.
 
@@ -72,13 +80,13 @@ func main() {
 	})
 }
 
-Output:
+> go run main.go
 json:"first_name"
 json:"last_name"
 json:"email"
 ```
 
-This is great! We can already feel the power of the `reflect` package >:) Our newly created `Person` type has three fields, which are all being printed as expected. However, there is still work to be done, our current function is not particular successful at printing tags of inner struct fields:
+This is great! We can already feel the power of the `reflect` package >:) Our newly created `Person` type has three fields with tags, which are all being printed as expected. However, there is still work to be done!
 
 ```go
 type Person struct {
@@ -101,12 +109,12 @@ func main() {
 	})
 }
 
-Output:
+> go run main.go
 json:"name"
 json:"email"
 ```
 
-As we can see above, we have moved our first and last name fields into a struct of their own `Name`. Our current functionality only looks at the immediate struct tags. We need to recursively check our fields, if they could themselves contain struct tags:
+Only the tags `name` and `email` are being printed and the tags `first_name` and `last_name` are being ignored. This is because we have moved first and last name fields into a struct of their own `Name`. Our current functionality only looks at the struct tags of the given struct, but does not consider that one of the fields could be a struct itself, with a set tags of it's own. We there need to recursively check our fields, if they themselves, contain struct tags:
 
 ```go
 func PrintTags(v interface{}) {
@@ -132,7 +140,9 @@ func handleStruct(val reflect.Value) {
 }
 ```
 
-We have simply moved our logic into another function `handleStruct` which in turn checks if one of the fields of the given struct, is a struct itself. If so, then we simple call `handleStruct` again. Easy peasy! Running our `main` function again, will yield all of the tags of the inner struct :thumbs_up: - However, we also need to think about other kinds than inner structs; We also need to think about structs containing arrays, maps etc, which in turn, could also contain structs. However, this should be fairly simple to handle, as we can just add a few more handlers for our various types.
+We have simply moved our logic into another function `handleStruct` which in turn checks if one of the fields of the given struct, is a struct itself. If so, then we simply call `handleStruct` again. Easy peasy! Running our `main` function now, will yield all of the tags of the inner struct :thumbs_up:
+
+However, we also need to think about other kinds than inner structs; We also need to think about structs containing arrays, maps etc, which in turn, could also contain structs. However, this should be fairly simple to handle, as we can just add a few more handlers for our various types.
 
 ```go
 func handleValue(val reflect.Value) {
