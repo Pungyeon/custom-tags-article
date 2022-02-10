@@ -325,11 +325,7 @@ type Config struct {
 }
 ```
 
-----------------------
-Laziness
-----------------------
-
-Then we create our function for reading in our tags and setting the struct field value:
+Now it's time to create our handler for reading the environment variables and setting the retrieved value for the tagged field:
 
 ```go
 func handleConfigTag(value reflect.Value, field reflect.StructField) error {
@@ -347,25 +343,25 @@ func handleConfigTag(value reflect.Value, field reflect.StructField) error {
 func setValue(value reflect.Value, envvar string) error {
 	switch value.Kind() {
 	case reflect.String:
-		value.Set(reflect.ValueOf(envvar))
+		value.SetString(envvar)
 	case reflect.Int:
 		n, err := strconv.Atoi(envvar)
 		if err != nil {
 			return err
 		}
-		value.Set(reflect.ValueOf(n))
+		value.SetInt(int64(n))
 	}
 	return nil
 }
 ```
 
-The above example is doing the thing. We simply read the tag value and then lookup the environment variable specified.
+As we did with our validation handler, we start by retrieving the tag (in this case "conf"). After this, we then try to retrieve the environment variable specified in the tag. As we do with the tag, if there is no value, we simply return immediately and assume there is nothing to be done for this environment variable. If we do retrieve a value, we then set the value of our field, using the `setValue` function.
 
-Then we attempt to set the field value, by determining the field kind and then converting the string to the appropriate type.
+In this function, we start by identifying the `reflect.Kind` of the field value and attempt to convert the environment variable value to the appropriate type. If the kind is a string, we can simple set the value using `reflect.Value::SetString`, but if our field is a `reflect.Int` kind, we will attempt to convert the environment variable string value to an integer and thereafter set our field value using the `reflect.Value::SetInt` method.
 
-Currently, we are just support `int` and `string`, but it won't take much to add support for other types. If we wanted to, we could go as far as adding support for slices, structs etc. ... However, we won't go that far in this article :sweat_smile:
+Currently, we are merely supporting configuration types of `int` and `string`, but it won't take much to add support for other types. If we wanted to, we could go as far as adding support for slices, structs etc. ... However, we won't go that far in this article :sweat_smile:
 
-Instead, let us simple test out our simple new configuration, to see if it works!
+Instead, let us test out our simple new configuration, to see if it works!
 
 ```go
 func main() {
@@ -384,13 +380,24 @@ func main() {
 		cfg.ElasticsearchHost, cfg.HttpMaxRetries)
 }
 ```
+As in our previous program, we initialise our `TagHandler` by passing the `handleConfigTag` as the internal `HandlerFn` to create our custom tag behaviour, for setting struct fields through environment variables. We then declare a `cfg` variable and pass a pointer of this variable to our `TagHandler::Handle` method. It's important that we pass a pointer, rather than a copy, to ensure that when we set the various configuration field values, we are setting the values of our original `cfg` variable, rather than on a copy. This is the exact same mechanism behind the function `json.Unmarshal`.
 
-Running
+Finally, we print the values of our `cfg` variable to ensure that our handler is working as intended. Running the program yields the following results:
 
 ```bash
 > ELASTICSEARCH_HOST=http://localhost:9200 HTTP_MAX_RETRIES=5 go run main.go
 ElasticsearchHost: http://localhost:9200, HttpMaxRetries: 5
 ```
 
+Great success!
+
+As said before, this is a rather simple implementation and there would still be a long way to go, before this would be of actual use. We would have to support all the various types (int32, int64, float types, structs, arrays, etc.) or figure out some abstraction to simplify our approach. However, I hope that the examples served their purpose as a good guide on how to get started.
+
 ## Summary
-We made it a thing, it was good.
+In this article we covered the definition and usage of struct tags, as well as how to create our own custom tags. Of course, the examples in the article were simple (and incomplete) solutions, but I hope they demonstrated the building blocks for building your own custom struct tags. As mentioned before, the `reflect` package gives developers a lot of flexibility and therefore the possibilities are technically endless. If you really wanted to, it would be possible to write your own scripting language and evaluate this in your handler execution... However, let's just say, this is an idea beyond terrible. However, this is the curse of having endless flexibility, there is really nothing to stop you from making endlessly bad decisions with it.
+
+I hope this was useful! If you have questions or requests, then please feel free to reach out to me: lasse@jakobsen.dev
+
+If you enjoyed the article, then be sure to have a look at https://jakobsen.dev for more of my articles.
+
+Thanks! :bow:
