@@ -180,17 +180,17 @@ func handleMap(val reflect.Value) {
 }
 ```
 
-Great, as can be seen above. We have added three new handlers, so that we are now handling structs, arrays/slices and maps. Each of them have a slightly difference syntax for iterating through their contents. For arrays and slices, we are using the `reflect.Value::Len` method to retrieve the length of the array and `reflect.Value::Index` for retrieving the element at the specified index. For maps we are iterating through the keys of the map and retrieving the value stored in that key.
+Great! We have added three new handlers, so that we are now handling structs, arrays/slices and maps. Each of them have a slightly difference syntax for iterating through their contents. For arrays and slices, we are using the `reflect.Value::Len` method to retrieve the length of the array and `reflect.Value::Index` for retrieving the element at the specified index. For maps we are iterating through the keys of the map and retrieving the value stored for that particular key.
 
 It's important to note, that the `reflect.Value::NumField` and `reflect.Value::MapKeys` methods are specific to, respectively, structs and maps. If these methods are called on a different value kind, it will cause a panic, which we want to avoid at all costs.
 
-> NOTE : We have also added a handler for pointers in `handleValue`. This is because `reflect` will identify a pointer as a `reflect.Ptr` rather than a struct (which makes sense). So, calling the `.Elem()`, essentially is the same as de-referencing, returning the value of that pointer.
+Not to forget, we have also added `handleValue` which acts as a distributor, identifying the kind of the value and invoking the corresponding function for that kind.
 
-Furthermore, we have also added `handleValue` which acts as a distributor, identifying the kind of the value and invoking the corresponding function for that kind.
+> NOTE : We have also added a handler for pointers in `handleValue`. This is because `reflect` will identify a pointer as a `reflect.Ptr` rather than a struct (which makes sense). So, calling the `.Elem()`, essentially is the same as de-referencing, returning the value of that pointer.
 
 ## Creating Custom Tags
 ### The building blocks
-So far so good, but currently we are only accessing the field tag, we aren't actually doing anything with them. But it's almost time. Before we move on to this step, let's do a super quick refactor:
+So far so good, but currently we are only accessing the field tag and printing them, which is lovely, but not particularly useful. So, let's set out to do something useful. To prepare for this, let's do a super quick refactor of our code, to make our lives a little easier in the not so distant future:
 
 ```go
 type TagHandler struct {
@@ -222,10 +222,10 @@ func (th TagHandler) handleArray(val reflect.Value) error { ... }
 func (th TagHandler) handleMap(val reflect.Value) error { ... }
 ```
 
-We have created a new structure `TagHandler` and have made all of our functions into methods of this struct. Furthermore, `TagHandler` stores a function pointer with the signature `func(reflect.Value, reflect.StructField) error`, the idea behind this, is to allow any function with this signature to be called by the `TagHandler::handleStruct` method. This enables us to, very easily, create functionality for our custom tags. So let's try it out!
+We have created a new structure `TagHandler` and have made all of our functions into methods of this struct. Furthermore, `TagHandler` stores a function with the signature `func(reflect.Value, reflect.StructField) error`, the idea behind this, is to allow any function with this signature to be called by the `TagHandler::handleStruct` method. This enables us to, very easily, create functionality for our custom tags. So let's try it out!
 
 ### Regex Validator Tag
-We are going to create a custom tag, which will be able to validate the value of a tagged field, using a regular expression.
+To start off with, we are going to create a custom tag which will be able to validate the value of a tagged field, using a regular expression.
 
 ```go
 func handleValidateTag(value reflect.Value, field reflect.StructField) error {
@@ -244,7 +244,7 @@ func handleValidateTag(value reflect.Value, field reflect.StructField) error {
 }
 ```
 
-The function `handleValidateTag` receives a `reflect.Value` and a `reflect.StructField`. Using the struct field, we lookup the value for the tag `validate`. If it doesn't exist `!ok`, then we know that there is no `validate` tag and therefore nothing to validate, so we can safely just return. However, if there is a tag, we attempt to compile it and then match the field value with our tag regular expression. If there is no match, then the value is considered invalid, so we return an error. If there is a match, we can assume that the value is valid. Let's try it out!
+The function `handleValidateTag` receives a `reflect.Value` and a `reflect.StructField`. Using the struct field, we lookup the value for the `validate` tag. If it doesn't exist (`ok` returns as false), then we know that there is no `validate` tag and therefore nothing to validate, so we can safely just return. However, if there is a tag, we attempt to compile it and then match the field value with our tag regular expression. If there is no match, then the value is considered invalid, so we return an error. If there is a match, we can assume that the value is valid. Let's try it out!
 
 ```go
 type Person struct {
@@ -275,7 +275,7 @@ func main() {
 }
 ```
 
-> NOTE : The regex value for validating an e-mail is not 100% safe, but it should suffice for the purposes for this article :relaxed_smile:
+> NOTE : The regex value for validating an e-mail is not perfect, but it should suffice for the purposes for this article :relaxed_smile:
 
 Notice that this will return an error, because the e-mail in the friends slice is invalid. If we fix this email address by giving it a `.com` postfix, the error is resolved ! Magic ! :party:
 
@@ -288,7 +288,7 @@ type Person struct {
 }
 
 Output:
-invalid field (int::BirthYear) int Value> != ^(19|20)\d\d$
+invalid field (int::BirthYear) <int Value> != ^(19|20)\d\d$
 ```
 
 So, this is because of the following line of code:
@@ -300,7 +300,7 @@ func handleValidateTag(value reflect.Value, field reflect.StructField) error {
 }
 ```
 
-We are trying to access the string value of our `reflect.Value` using the method `reflect.Value::String`. However, in this case, our underlying value is actually an integer, so `reflect` returns the string value "int Value". So, thankfully not a panic, but nevertheless, completely useless. We will handle this lazily, but effectively but converting our type to string with `fmt.Sprintf` rather than using `reflect.Value::String`
+We are trying to access the string value of our `reflect.Value` using the method `reflect.Value::String`. However, in this case, our underlying value is actually an integer, so `reflect` returns the string value `<int Value>`. So, thankfully not a panic, but nevertheless, completely useless. We will handle this lazily, but effectively but converting our type to string with `fmt.Sprintf` rather than using `reflect.Value::String`
 
 ```go
 func valueToString(value reflect.Value) string {
@@ -321,7 +321,7 @@ We have created a new function `valueToString` which uses `fmt.Sprintf` to retur
 invalid field (int::BirthYear) 0 != ^(19|20)\d\d$
 ```
 
-And if we change the value of `BirthYear` to something valid (within this century), our validator will stop complaining :party: There are of course many other cases we are not accounting for, but for now, we will put our validator on the shelf and move on to something else.
+And if we set the value of `BirthYear` values (remember the `Person` in `Friends`) to something valid (within this century), our validator will stop complaining :party: There are of course many other cases we are not accounting for, but for now, we will put our validator on the shelf and move on to something else.
 
 ### Config Tag
 So, now that we have seen that we can validate our struct field values via. our tags, how about we have a look at using struct tags for *setting* the values of our struct fields? Let's try to make a struct tag, in which we can specify the environment variable which should populate the value of our config parameter. This is a pretty common use-case and something that has been done many times before, but let's try doing this ourselves, to see what it involves.
@@ -367,9 +367,11 @@ func setValue(value reflect.Value, envvar string) error {
 
 As we did with our validation handler, we start by retrieving the tag (in this case "conf"). After this, we then try to retrieve the environment variable specified in the tag. As we do with the tag, if there is no value, we simply return immediately and assume there is nothing to be done for this environment variable. If we do retrieve a value, we then set the value of our field, using the `setValue` function.
 
-In this function, we start by identifying the `reflect.Kind` of the field value and attempt to convert the environment variable value to the appropriate type. If the kind is a string, we can simple set the value using `reflect.Value::SetString`, but if our field is a `reflect.Int` kind, we will attempt to convert the environment variable string value to an integer and thereafter set our field value using the `reflect.Value::SetInt` method.
+In this function, we start by identifying the `reflect.Kind` of the field value and attempt to convert the environment variable string to the appropriate type. If the kind is a string, we can simple set the value using `reflect.Value::SetString`, but if our field is a `reflect.Int`, we will attempt to convert the environment variable string value to an integer and thereafter set our field value using the `reflect.Value::SetInt` method.
 
 Currently, we are merely supporting configuration types of `int` and `string`, but it won't take much to add support for other types. If we wanted to, we could go as far as adding support for slices, structs etc. ... However, we won't go that far in this article :sweat_smile:
+
+> NOTE: Furthermore, you could also add more parameters and specify default values and usage messages.
 
 Instead, let us test out our simple new configuration, to see if it works!
 
@@ -401,13 +403,13 @@ ElasticsearchHost: http://localhost:9200, HttpMaxRetries: 5
 
 Great success!
 
-As said before, this is a rather simple implementation and there would still be a long way to go, before this would be of actual use. We would have to support all the various types (int32, int64, float types, structs, arrays, etc.) or figure out some abstraction to simplify our approach. However, I hope that the examples served their purpose as a good guide on how to get started.
+As said before, this is a rather simple implementation and there would still be a long way to go, before this would be of actual use. We would have to support all the various types (int32, int64, float types, structs, arrays, etc.) or figure out some abstraction to simplify our approach. However, I hope that the examples served their purpose as a quick introduction.
 
 ## Summary
-In this article we covered the definition and usage of struct tags, as well as how to create our own custom tags. Of course, the examples in the article were simple (and incomplete) solutions, but I hope they demonstrated the building blocks for building your own custom struct tags. As mentioned before, the `reflect` package gives developers a lot of flexibility and therefore the possibilities are technically endless. If you really wanted to, it would be possible to write your own scripting language and evaluate this in your handler execution... However, let's just say, this is an idea beyond terrible. However, this is the curse of having endless flexibility, there is really nothing to stop you from making endlessly bad decisions with it.
+In this article we covered the definition and usage of struct tags, as well as how to create our own custom tags. Of course, the examples in the article were simple (and incomplete) solutions, but I hope they demonstrated the building blocks for building your own custom struct tags. As mentioned before, the `reflect` package gives developers a lot of flexibility and therefore the possibilities are technically endless. If you really wanted to, it would be possible to write your own scripting language and evaluate this in your custom tag handler execution... However, let's just say, this is an idea beyond terrible.
 
-I hope this was useful! If you have questions or requests, then please feel free to reach out to me: lasse@jakobsen.dev
+That being said, you can have endless amount of fun with the `reflect` package. Even if it's not for anything useful, sometimes it's just a lot of fun to experiment and try out some whacky experiments. Most of the things I've learnt, have come from side-projects and whacky experimentation, which lead absolutely nowhere :joy:
 
-If you enjoyed the article, then be sure to have a look at https://jakobsen.dev for more of my articles.
+I hope this article was useful! If you have questions or requests, then please feel free to reach out to me: lasse@jakobsen.dev - If you enjoyed the article, then be sure to have a look at https://jakobsen.dev for more of my articles.
 
 Thanks! :bow:
