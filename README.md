@@ -3,7 +3,9 @@
 ## Introduction
 > NOTE: You can [skip](#Retrieving tags) this if you already know what a struct tag is/does
 
-What are struct tags? Struct tags is a Go feature, which defines a tag for a particular field of a struct. In itself, a struct tag is merely metadata and does not affect anything. However, it is commonly used for defining behaviour for that particular field. A very common example of this is the `json` tag, which the `json` package uses to Marshal and Unmarshal struct fields:
+In this article we will have a look at the Go feature "struct tags", talk about what they are and how they are used. Furthermore, we will explore how we can create our own custom tags, to benefit even more from this useful feature.
+
+So, to start with: What are struct tags? Struct tags are a Go feature, which defines a tag for a particular field of a struct. In itself, a struct tag is merely text metadata field. However, it's quite practical and is commonly used for defining behaviour for a particular field. A very common example of this is the `json` tag, use by the `json` package to Marshal and Unmarshal struct fields:
 
 ```go
 type Person struct {
@@ -11,13 +13,11 @@ type Person struct {
 }
 ```
 
-The above example instructs the `json` package to write the `Person::Email` field as `email` when encoding to JSON, rather than `Email`, as well as decoding the value of `email` field in a JSON and assigning it to `Person::Email`. Simple! This is really useful, because it's a very concise way of specifying this, which is the general idea of using struct tags.
-
-However, you can use the struct tag for many things. This article will explain how to create your own custom tag and (hopefully) save yourself from writing the same code over and over again!
+The above example instructs the `json` package to write the `Person::Email` field as `email` when encoding to JSON, rather than `Email`, as well as decoding the value of `email` field in a JSON and assigning it to `Person::Email`. Simple! This is really useful, because it's a very concise way of specifying how to convert from and to JSON. This is the essence of struct tags: Doing something useful, in a concise manner. There are many use-cases for struct tags, other than defining variable naming convention conversion (say that 5 times in a row quickly :flushed:). This article will explain how to create your own custom tag and (hopefully) save yourself from writing the same code over and over again!
 
 ## Retrieving tags
 The first hurdle we need to tackle, is figuring out how we can retrieve these tags programmatically. Fortunately,
-retrieving a tag, is pretty straight forward, using the `reflect` package. As with any article which mentions the `reflect` package, a warning must ensue. The `reflect` package is a powerful package and gives Go developers the flexibility to create some very useful and creative projects. However, one must proceed with caution! The `reflect` package is unforgiving and errors are handled with a `panic`. We will see examples of this later in the article.
+retrieving a tag, is pretty straight forward, using the `reflect` package. As with any article which mentions the `reflect` package, a warning must ensue. The `reflect` package is a powerful package and gives Go developers the flexibility to create some very useful and creative projects. However, one must proceed with caution! The `reflect` package is unforgiving and errors are typically handled with a `panic`. We will see examples of this later in the article.
 
 However, with that out of the way, here is how to retrieve struct tags using the `reflect` package:
 
@@ -36,7 +36,7 @@ func PrintTags(v interface{}) {
 }
 ```
 
-In the above function, we have created a function which accepts an `interface{}` value (in other words, this can be *any* value). We use the `reflect.ValueOf` function, to retrieve our `reflect.Value`.
+In the above function, we have created a function which accepts an `interface{}` value (in other words, this can be *any* value). Working with the `interface{}` type in Go, is a little underwhelming. It has no methods nor fields and there is generally very little which you can actually do with an `interface{}` other than type asserting. So, we would therefore like some more information on what this `interface{}` value actually contains. For this we use the `reflect.ValueOf`. This retrieves a `reflect.Value`, which contains all the metadata and methods we need to work with:
 
 ```go
 type Value struct {
@@ -46,11 +46,11 @@ type Value struct {
 }
 ```
 
-Simply, the `typ` field of type `*rtype` is Go's "common" internal library type. It is essentially just metadata for that particular value: name, size, equality function, hash and garbage collection data. The `ptr unsafe.Pointer` is a raw pointer to the actual data of the value and `flag` is additional metadata: whether the value is read-only, if it is addressable etc. I'm not going deeper into this rabbit hole, but if are curious as to how the Go runtime works, I can highly recommend jumping in.
+Simply, the `typ` field of type `*rtype` is Go's "common" internal library type. It is essentially just metadata for that particular value: name, size, equality function, hash and garbage collection data. The `ptr unsafe.Pointer` is a raw pointer to the actual data of the value and `flag` is additional metadata: whether the value is read-only, if it is addressable etc. I'm not going deeper into this rabbit hole, but if are curious, I can highly recommend jumping right in! It's a lot of fun.
 
 > NOTE : Thoroughly recommend this article series: https://cmc.gitbook.io/go-internals/
 
-Either way, the `reflect.Value` type allows us to have a peak at some of the metadata of the given value. For example, using the method `reflect.Value::Kind` we can retrieve the underlying type (int, array, slice, struct etc.). Using this kind value, we can check whether the given value is of type `reflect.Struct`. We do this, as we are not interested in anything else; After all, we are trying to retrieve struct tags, and they only reside on structs.
+Either way, the `reflect.Value` type allows us to have a peak at the metadata of the given value. For example, using the method `reflect.Value::Kind` we can retrieve the underlying type (int, array, slice, struct etc.). Using this kind value, we can check whether the given value is of type `reflect.Struct`. We do this, as we are not interested in anything else; After all, we are trying to retrieve struct tags, and they only reside on structs.
 
 Should we have been lucky enough to receive a struct kind, we will now retrieve the type information of this struct. As an example, if we had received a `Person` type, we would be retrieving the `reflect.Type` metadata for a `Person`. With this type information we can now iterate over the fields by calling the `reflect.Type::NumField` method, which will return the number of fields for that type. Thereafter, we can retrieve the metadata for each field using the method `reflect.Value::Field`, specifying the field index with our iterator `i`.
 
